@@ -285,27 +285,27 @@ class Chef
       end
 
       def macterm
-        begin
-          require 'appscript'
-        rescue LoadError
-          STDERR.puts "you need the rb-appscript gem to use knife ssh macterm. `(sudo) gem install rb-appscript` to install"
-          raise
+        command = '
+          tell application "Terminal"
+            activate
+            -- Create new window
+            tell application "System Events"
+              tell process "Terminal" to keystroke "n" using command down
+            end
+            set targetWindow to front window
+        '
+        identity_file = "-i #{config[:identity_file]} " if config[:identity_file]
+        session.servers_for.each_with_index do |server, t|
+          command << %Q|-- Create tab for each server (except first)
+          tell application "System Events"
+            tell process "Terminal" to keystroke "t" using command down
+          end\n| unless t == 0
+          command << %Q|do script "ssh #{identity_file} #{server.user ? server.user+'@'+server.host : server.host}" in tab #{t+1} of targetWindow\n|
         end
-
-        Appscript.app("/Applications/Utilities/Terminal.app").windows.first.activate
-        Appscript.app("System Events").application_processes["Terminal.app"].keystroke("n", :using=>:command_down)
-        term = Appscript.app('Terminal')
-        window = term.windows.first.get
-
-        (session.servers_for.size - 1).times do |i|
-          window.activate
-          Appscript.app("System Events").application_processes["Terminal.app"].keystroke("t", :using=>:command_down)
-        end
-
-        session.servers_for.each_with_index do |server, tab_number|
-          cmd = "unset PROMPT_COMMAND; echo -e \"\\033]0;#{server.host}\\007\"; ssh #{server.user ? "#{server.user}@#{server.host}" : server.host}"
-          Appscript.app('Terminal').do_script(cmd, :in => window.tabs[tab_number + 1].get)
-        end
+        command << '
+          end tell
+        '
+        exec "osascript -e '#{command}' > /dev/null"
       end
 
       def configure_attribute
